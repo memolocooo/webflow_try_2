@@ -3,3 +3,4 @@ Flask-SQLAlchemy
 requests
 waitress
 psycopg2-binary
+python-amazon-sp-api
