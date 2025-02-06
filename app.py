@@ -6,30 +6,27 @@ import os
 from videoseries import getOrders, getFees
 from dotenv import load_dotenv
 
-# Initialize the SQLAlchemy instance globally
-db = SQLAlchemy()
-
 # Load environment variables from .env
 load_dotenv()
+
+# Initialize the SQLAlchemy instance globally
+db = SQLAlchemy()
 
 # Fetch credentials from environment variables
 LWA_APP_ID = os.getenv("LWA_APP_ID")
 LWA_CLIENT_SECRET = os.getenv("LWA_CLIENT_SECRET")
 REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
-
-# Use DATABASE_URL from environment or fallback to local development database
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv("DATABASE_URL")  # Use DATABASE_URL provided by Render
 
 # Ensure critical credentials are available
 if not LWA_APP_ID or not LWA_CLIENT_SECRET:
-    raise Exception("Environment variables for Amazon SP-API credentials are missing. Check your .env file.")
+    raise Exception("Amazon SP-API credentials are missing. Check your environment variables.")
 
 if not DATABASE_URL:
     raise Exception("Database URL is missing. Ensure DATABASE_URL is set in your environment variables.")
 
+# Flask application setup
 app = Flask(__name__)
-
-# Configure PostgreSQL database
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -54,6 +51,7 @@ class Order(db.Model):
     total = db.Column(db.Float, nullable=False)
     purchase_date = db.Column(db.DateTime, nullable=False)
 
+# API Endpoints
 @app.route('/customers', methods=['POST'])
 def add_customer():
     data = request.json
@@ -76,9 +74,8 @@ def user_orders():
     if not access_token:
         return jsonify({"error": "Missing access token"}), 401
 
-    # Fetch orders using the access token
     headers = {"Authorization": f"Bearer {access_token}"}
-    orders_url = "https://sellingpartnerapi-na.amazon.com/orders/v0/orders"  # Adjust for region
+    orders_url = "https://sellingpartnerapi-na.amazon.com/orders/v0/orders"
 
     try:
         response = requests.get(orders_url, headers=headers)
@@ -92,7 +89,7 @@ def user_orders():
 def add_order():
     data = request.json
     required_keys = ['customer_id', 'order_id', 'status', 'total', 'purchase_date']
-    
+
     if not all(key in data for key in required_keys):
         return jsonify({'error': 'Missing required fields'}), 400
 
@@ -116,7 +113,7 @@ def get_orders(customer_id):
     orders = Order.query.filter_by(customer_id=customer_id).all()
     if not orders:
         return jsonify({'message': 'No orders found for this customer'}), 404
-    
+
     result = [
         {
             'order_id': order.order_id,
@@ -127,19 +124,6 @@ def get_orders(customer_id):
         for order in orders
     ]
     return jsonify(result), 200
-
-def fetch_amazon_orders(access_token, created_after):
-    headers = {
-        'Authorization': f'Bearer {access_token}'
-    }
-    url = f'https://sellingpartnerapi-na.amazon.cd/orders/v0/orders?CreatedAfter={created_after}'
-
-    try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        return {'error': str(e)}
 
 @app.route('/auth/amazon', methods=['POST'])
 def amazon_auth():
@@ -178,4 +162,4 @@ def home():
     return "Welcome to the Flask App! API is running."
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000, debug=True)
+    app.run(host="0.0.0.0", port=10000)
