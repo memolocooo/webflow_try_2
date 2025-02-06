@@ -6,6 +6,9 @@ import os
 from videoseries import getOrders, getFees
 from dotenv import load_dotenv
 
+# Initialize the SQLAlchemy instance globally
+db = SQLAlchemy()
+
 # Load environment variables from .env
 load_dotenv()
 
@@ -203,13 +206,14 @@ def api_get_fees():
         return jsonify({"error": str(e)}), 500
     
 
+# Your routes go here...
+
 @app.route('/')
 def home():
     return "Welcome to the Flask App! API is running."
 
 if __name__ == "__main__":
-    app.run()
-
+    app.run(host="0.0.0.0", port=10000, debug=True)
 
 
 
