@@ -33,11 +33,8 @@ app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Initialize the database
-db = SQLAlchemy(app)
-
-
-db = SQLAlchemy(app)
+# Bind the SQLAlchemy instance to the app
+db.init_app(app)
 
 # Initialize database tables
 with app.app_context():
@@ -71,7 +68,7 @@ def add_customer():
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
-    
+
 @app.route('/user/orders', methods=['GET'])
 def user_orders():
     access_token = request.headers.get("Authorization")  # Get token from frontend
@@ -90,7 +87,6 @@ def user_orders():
         return jsonify(orders), 200
     except requests.exceptions.RequestException as e:
         return jsonify({"error": str(e)}), 500
-
 
 @app.route('/orders', methods=['POST'])
 def add_order():
@@ -145,8 +141,6 @@ def fetch_amazon_orders(access_token, created_after):
     except requests.exceptions.RequestException as e:
         return {'error': str(e)}
 
-
-# Route to handle Amazon authorization code exchange
 @app.route('/auth/amazon', methods=['POST'])
 def amazon_auth():
     auth_code = request.json.get("code")  # Get the authorization code from the frontend
@@ -154,59 +148,30 @@ def amazon_auth():
         return jsonify({"error": "Authorization code is required"}), 400
 
     try:
-        # Exchange the authorization code for an access token
         token_url = "https://api.amazon.com/auth/o2/token"
         payload = {
             "grant_type": "authorization_code",
             "code": auth_code,
             "redirect_uri": "https://guillermos-amazing-site-b0c75a.webflow.io/callback",
-            "client_id": LWA_APP_ID,  # ✅ FIXED: Use the correct variable
-            "client_secret": LWA_CLIENT_SECRET,  # ✅ FIXED: Use the correct variable
+            "client_id": LWA_APP_ID,
+            "client_secret": LWA_CLIENT_SECRET,
         }
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
         token_response = requests.post(token_url, data=payload, headers=headers)
         token_data = token_response.json()
 
-        # Check for access token
         if "access_token" not in token_data:
             return jsonify({"error": "Failed to obtain access token"}), 400
 
-        # Fetch user profile with the access token
         user_info_url = "https://api.amazon.com/user/profile"
         user_headers = {"Authorization": f"Bearer {token_data['access_token']}"}
         user_response = requests.get(user_info_url, headers=user_headers)
         user_data = user_response.json()
 
-        # Return user information
         return jsonify({"access_token": token_data["access_token"], "user": user_data})
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-
-
-@app.route('/api/orders', methods=['GET'])
-def api_get_orders():
-    try:
-        orders = getOrders()
-        return jsonify(orders), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/fees', methods=['GET'])
-def api_get_fees():
-    asin = request.args.get('asin')
-    price = request.args.get('price')
-    if not asin or not price:
-        return jsonify({"error": "ASIN and price are required"}), 400
-    try:
-        fees = getFees(asin, price)
-        return jsonify({"fees": fees}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    
-
-# Your routes go here...
 
 @app.route('/')
 def home():
@@ -214,8 +179,3 @@ def home():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000, debug=True)
-
-
-
-
-
