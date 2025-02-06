@@ -18,7 +18,7 @@ LWA_CLIENT_SECRET = os.getenv("LWA_CLIENT_SECRET")
 REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
 
 # Use DATABASE_URL from environment or fallback to local development database
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:Baramericas1250@localhost:5432/webflow_database")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 # Ensure critical credentials are available
 if not LWA_APP_ID or not LWA_CLIENT_SECRET:
@@ -132,7 +132,7 @@ def fetch_amazon_orders(access_token, created_after):
     headers = {
         'Authorization': f'Bearer {access_token}'
     }
-    url = f'https://sellingpartnerapi-na.amazon.com/orders/v0/orders?CreatedAfter={created_after}'
+    url = f'https://sellingpartnerapi-na.amazon.cd/orders/v0/orders?CreatedAfter={created_after}'
 
     try:
         response = requests.get(url, headers=headers)
