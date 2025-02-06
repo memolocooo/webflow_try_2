@@ -4,3 +4,4 @@ requests
 waitress
 psycopg2-binary
 python-amazon-sp-api
+python-dotenv
