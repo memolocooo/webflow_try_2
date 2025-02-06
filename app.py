@@ -22,7 +22,7 @@ if not LWA_APP_ID or not LWA_CLIENT_SECRET or not DATABASE_URL:
 app = Flask(__name__)
 
 # Configure PostgreSQL database for Render
-app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
