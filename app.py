@@ -13,17 +13,26 @@ load_dotenv()
 LWA_APP_ID = os.getenv("LWA_APP_ID")
 LWA_CLIENT_SECRET = os.getenv("LWA_CLIENT_SECRET")
 REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
-DATABASE_URL = os.getenv("DATABASE_URL")  # Add this for Render
 
-# Ensure credentials are available
-if not LWA_APP_ID or not LWA_CLIENT_SECRET or not DATABASE_URL:
-    raise Exception("Environment variables are missing. Check your .env file.")
+# Use DATABASE_URL from environment or fallback to local development database
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:Baramericas1250@localhost:5432/webflow_database")
+
+# Ensure critical credentials are available
+if not LWA_APP_ID or not LWA_CLIENT_SECRET:
+    raise Exception("Environment variables for Amazon SP-API credentials are missing. Check your .env file.")
+
+if not DATABASE_URL:
+    raise Exception("Database URL is missing. Ensure DATABASE_URL is set in your environment variables.")
 
 app = Flask(__name__)
 
-# Configure PostgreSQL database for Render
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
+# Configure PostgreSQL database
+app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Initialize the database
+db = SQLAlchemy(app)
+
 
 db = SQLAlchemy(app)
 
