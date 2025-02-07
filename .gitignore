@@ -1,5 +1,4 @@
-venv/
+
 
 # Ignore environment files
-.env
 .env

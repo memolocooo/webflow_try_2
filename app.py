@@ -8,8 +8,10 @@ from dotenv import load_dotenv
 # Load environment variables from .env
 load_dotenv()
 
-# Initialize the SQLAlchemy instance globally
-db = SQLAlchemy()
+# Initialize Flask app
+app = Flask(__name__)
+
+
 
 # Fetch credentials from environment variables
 LWA_APP_ID = os.getenv("LWA_APP_ID")
@@ -25,9 +27,12 @@ if not DATABASE_URL:
     raise Exception("Database URL is missing. Ensure DATABASE_URL is set in your environment variables.")
 
 # Flask application setup
-app = Flask(__name__)
+
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Initialize the SQLAlchemy instance globally
+db = SQLAlchemy()
 
 # Bind the SQLAlchemy instance to the app
 db.init_app(app)
