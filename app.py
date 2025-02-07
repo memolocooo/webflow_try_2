@@ -71,23 +71,26 @@ def add_customer():
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
-@app.route('/user/orders', methods=['GET'])
-def user_orders():
-    access_token = request.headers.get("Authorization")  # Get token from frontend
 
-    if not access_token:
-        return jsonify({"error": "Missing access token"}), 401
+@app.route('/orders', methods=['GET'])
+def get_all_orders():
+    orders = Order.query.all()
+    if not orders:
+        return jsonify({'message': 'No orders found'}), 404
 
-    headers = {"Authorization": f"Bearer {access_token}"}
-    orders_url = "https://sellingpartnerapi-na.amazon.com/orders/v0/orders"
+    result = [
+        {
+            'id': order.id,
+            'customer_id': order.customer_id,
+            'order_id': order.order_id,
+            'status': order.status,
+            'total': order.total,
+            'purchase_date': order.purchase_date.strftime('%Y-%m-%dT%H:%M:%SZ')
+        }
+        for order in orders
+    ]
+    return jsonify(result), 200
 
-    try:
-        response = requests.get(orders_url, headers=headers)
-        response.raise_for_status()
-        orders = response.json()
-        return jsonify(orders), 200
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": str(e)}), 500
 
 @app.route('/orders', methods=['POST'])
 def add_order():
@@ -167,3 +170,38 @@ def home():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
+
+
+@app.route('/callback', methods=['GET'])
+def handle_callback():
+    # Get the authorization code from the query parameters
+    auth_code = request.args.get('code')
+    
+    if not auth_code:
+        return jsonify({'error': 'Authorization code missing'}), 400
+
+    try:
+        # Exchange the authorization code for an access token
+        token_url = "https://api.amazon.com/auth/o2/token"
+        payload = {
+            "grant_type": "authorization_code",
+            "code": auth_code,
+            "redirect_uri": "https://guillermos-amazing-site-b0c75a.webflow.io/callback",
+            "client_id": LWA_APP_ID,
+            "client_secret": LWA_CLIENT_SECRET,
+        }
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        token_response = requests.post(token_url, data=payload, headers=headers)
+        token_data = token_response.json()
+
+        if "access_token" not in token_data:
+            return jsonify({"error": "Failed to obtain access token"}), 400
+
+        # Redirect to Webflow or display a success message
+        return jsonify({
+            "message": "Authorization successful",
+            "access_token": token_data["access_token"],
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
