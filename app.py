@@ -3,7 +3,6 @@ from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 import requests
 import os
-from videoseries import getOrders, getFees
 from dotenv import load_dotenv
 
 # Load environment variables from .env
