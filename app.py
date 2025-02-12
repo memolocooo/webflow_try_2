@@ -105,27 +105,45 @@ def callback():
         token_data["expires_in"]
     )
 
+    # ✅ Redirect with selling_partner_id
+    return redirect(f"https://guillermos-amazing-site-b0c75a.webflow.io/dashboard?selling_partner_id={selling_partner_id}")
+
+
 @app.route("/dashboard")
 def dashboard():
-    """Returns stored token for Webflow frontend."""
-    print("🚀 Debug: Checking Flask session data:", dict(session))  # ✅ Debugging log
+    """Fetch stored OAuth tokens from PostgreSQL instead of Flask session."""
+    selling_partner_id = request.args.get("selling_partner_id")
 
-    if "access_token" in session and "refresh_token" in session:
-        debug_response = {
-            "message": "Amazon SP-API Connected Successfully!",
-            "access_token": session["access_token"],
-            "refresh_token": session["refresh_token"],
-            "selling_partner_id": session.get("selling_partner_id"),
-            "expires_in": session.get("expires_in", 3600),  # Default to 1 hour if missing
-            "token_type": "bearer"
-        }
+    if not selling_partner_id:
+        return jsonify({"error": "Missing selling_partner_id"}), 400
 
-        print("✅ OAuth Debug Output:", debug_response)  # ✅ Log the JSON response
+    try:
+        with DB_CONN.cursor() as cur:
+            cur.execute("""
+                SELECT access_token, refresh_token, expires_at 
+                FROM amazon_oauth_tokens 
+                WHERE selling_partner_id = %s
+            """, (selling_partner_id,))
+            result = cur.fetchone()
 
-        return jsonify(debug_response), 200
+        if result:
+            access_token, refresh_token, expires_at = result
+            return jsonify({
+                "message": "Amazon SP-API Connected Successfully!",
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "selling_partner_id": selling_partner_id,
+                "expires_at": expires_at.isoformat(),
+                "token_type": "bearer"
+            })
 
-    print("❌ Error: No tokens found in session!")  # ✅ Debugging log
-    return jsonify({"error": "User not authenticated"}), 401
+        print("❌ Error: No tokens found for Selling Partner ID:", selling_partner_id)
+        return jsonify({"error": "User not authenticated"}), 401
+
+    except Exception as e:
+        print("❌ Database Error:", e)
+        return jsonify({"error": "Database connection failed", "details": str(e)}), 500
+
 
 
 @app.route("/db-test")
