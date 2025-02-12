@@ -1,0 +1,28 @@
+{
+  "name": "backend_server",
+  "version": "1.0.0",
+  "description": "��#\u0000 \u0000f\u0000l\u0000a\u0000s\u0000k\u0000_\u0000a\u0000p\u0000i\u0000_\u0000w\u0000e\u0000b\u0000f\u0000l\u0000o\u0000w\u0000\r\u0000 \u0000",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/memolocooo/flask_api_webflow.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/memolocooo/flask_api_webflow/issues"
+  },
+  "homepage": "https://github.com/memolocooo/flask_api_webflow#readme",
+  "dependencies": {
+    "auth0": "^4.18.0",
+    "express": "^4.21.2",
+    "express-session": "^1.18.1",
+    "node-fetch": "^3.3.2"
+  }
+}

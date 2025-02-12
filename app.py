@@ -1,207 +1,151 @@
-from flask import Flask, jsonify, request
-from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime
-import requests
+import psycopg2
+from datetime import datetime, timedelta
+from flask import Flask, jsonify, request, redirect, session
 import os
 from dotenv import load_dotenv
+from flask_cors import CORS
+from flask_session import Session
 
-# Load environment variables from .env
+
+
+# Initialize Flask App
+app = Flask(__name__)
+app.secret_key = os.getenv("FLASK_SECRET_KEY")
+CORS(app, supports_credentials=True, origins=["https://guillermos-amazing-site-b0c75a.webflow.io"])
+
+# ✅ Ensure session is properly configured before using `Session(app)`
+app.config["SESSION_TYPE"] = "filesystem"
+app.config["SESSION_PERMANENT"] = False
+app.config["SESSION_FILE_DIR"] = "./flask_session_data"  # Ensure this exists
+
+# ✅ Initialize Flask-Session after setting config
+Session(app)
+
+
+# Load environment variables
 load_dotenv()
 
-# Initialize Flask app
-app = Flask(__name__)
 
+print("✅ Connected to PostgreSQL!")
 
-
-# Fetch credentials from environment variables
+# Amazon OAuth Variables
 LWA_APP_ID = os.getenv("LWA_APP_ID")
 LWA_CLIENT_SECRET = os.getenv("LWA_CLIENT_SECRET")
-REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
-DATABASE_URL = os.getenv("DATABASE_URL")  # Use DATABASE_URL provided by Render
+REDIRECT_URI = os.getenv("REDIRECT_URI")
+AUTH_URL = os.getenv("AUTH_URL")
+TOKEN_URL = os.getenv("TOKEN_URL")
+# Use Render's database URL
+DATABASE_URL = os.getenv("DB_URL")
 
-# Ensure critical credentials are available
-if not LWA_APP_ID or not LWA_CLIENT_SECRET:
-    raise Exception("Amazon SP-API credentials are missing. Check your environment variables.")
-
+# Ensure DATABASE_URL is set correctly
 if not DATABASE_URL:
-    raise Exception("Database URL is missing. Ensure DATABASE_URL is set in your environment variables.")
+    raise Exception("❌ DATABASE_URL is missing. Check Render Environment Variables.")
 
-# Flask application setup
-
-app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-# Initialize the SQLAlchemy instance globally
-db = SQLAlchemy()
-
-# Bind the SQLAlchemy instance to the app
-db.init_app(app)
-
-# Initialize database tables
-with app.app_context():
-    db.create_all()
-
-# Define database models
-class Customer(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    email = db.Column(db.String(100), unique=True, nullable=False)
-
-class Order(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
-    order_id = db.Column(db.String(100), unique=True, nullable=False)
-    status = db.Column(db.String(50), nullable=False)
-    total = db.Column(db.Float, nullable=False)
-    purchase_date = db.Column(db.DateTime, nullable=False)
-
-# API Endpoints
-@app.route('/customers', methods=['POST'])
-def add_customer():
-    data = request.json
-    if not data or 'name' not in data or 'email' not in data:
-        return jsonify({'error': 'Missing name or email'}), 400
-
-    try:
-        new_customer = Customer(name=data['name'], email=data['email'])
-        db.session.add(new_customer)
-        db.session.commit()
-        return jsonify({'message': 'Customer added successfully', 'customer_id': new_customer.id}), 201
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+# Connect to PostgreSQL
+DB_CONN = psycopg2.connect(DATABASE_URL, sslmode="require")
 
 
-@app.route('/orders', methods=['GET'])
-def get_all_orders():
-    orders = Order.query.all()
-    if not orders:
-        return jsonify({'message': 'No orders found'}), 404
+def save_oauth_tokens(selling_partner_id, access_token, refresh_token, expires_in):
+    """Save Amazon OAuth credentials to PostgreSQL."""
+    expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
 
-    result = [
-        {
-            'id': order.id,
-            'customer_id': order.customer_id,
-            'order_id': order.order_id,
-            'status': order.status,
-            'total': order.total,
-            'purchase_date': order.purchase_date.strftime('%Y-%m-%dT%H:%M:%SZ')
+    with DB_CONN.cursor() as cur:
+        cur.execute("""
+            INSERT INTO amazon_oauth_tokens (selling_partner_id, access_token, refresh_token, expires_at)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (selling_partner_id) DO UPDATE 
+            SET access_token = EXCLUDED.access_token,
+                refresh_token = EXCLUDED.refresh_token,
+                expires_at = EXCLUDED.expires_at;
+        """, (selling_partner_id, access_token, refresh_token, expires_at))
+
+        DB_CONN.commit()
+
+@app.route('/start-oauth')
+def start_oauth():
+    """Redirects user to Amazon OAuth login page."""
+    amazon_auth_url = (
+        f"{AUTH_URL}"
+        f"?application_id={LWA_APP_ID}"
+        f"&state=random_state_value"
+        f"&redirect_uri={REDIRECT_URI}"
+        f"&version=beta"
+    )
+    return redirect(amazon_auth_url)
+
+@app.route('/callback')
+def callback():
+    """Handles the OAuth callback and stores credentials in PostgreSQL."""
+    auth_code = request.args.get("spapi_oauth_code")
+    selling_partner_id = request.args.get("selling_partner_id")
+
+    if not auth_code or not selling_partner_id:
+        return jsonify({"error": "Missing parameters"}), 400
+
+    # Exchange Authorization Code for Tokens
+    payload = {
+        "grant_type": "authorization_code",
+        "code": auth_code,
+        "redirect_uri": REDIRECT_URI,
+        "client_id": LWA_APP_ID,
+        "client_secret": LWA_CLIENT_SECRET,
+    }
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    response = requests.post(TOKEN_URL, data=payload, headers=headers)
+    token_data = response.json()
+
+    if "access_token" not in token_data:
+        return jsonify({"error": "Failed to exchange token", "details": token_data}), 400
+
+    # Store in PostgreSQL
+    save_oauth_tokens(
+        selling_partner_id,
+        token_data["access_token"],
+        token_data["refresh_token"],
+        token_data["expires_in"]
+    )
+
+@app.route("/dashboard")
+def dashboard():
+    """Returns stored token for Webflow frontend."""
+    print("🚀 Debug: Checking Flask session data:", dict(session))  # ✅ Debugging log
+
+    if "access_token" in session and "refresh_token" in session:
+        debug_response = {
+            "message": "Amazon SP-API Connected Successfully!",
+            "access_token": session["access_token"],
+            "refresh_token": session["refresh_token"],
+            "selling_partner_id": session.get("selling_partner_id"),
+            "expires_in": session.get("expires_in", 3600),  # Default to 1 hour if missing
+            "token_type": "bearer"
         }
-        for order in orders
-    ]
-    return jsonify(result), 200
+
+        print("✅ OAuth Debug Output:", debug_response)  # ✅ Log the JSON response
+
+        return jsonify(debug_response), 200
+
+    print("❌ Error: No tokens found in session!")  # ✅ Debugging log
+    return jsonify({"error": "User not authenticated"}), 401
 
 
-@app.route('/orders', methods=['POST'])
-def add_order():
-    data = request.json
-    required_keys = ['customer_id', 'order_id', 'status', 'total', 'purchase_date']
-
-    if not all(key in data for key in required_keys):
-        return jsonify({'error': 'Missing required fields'}), 400
-
+@app.route("/db-test")
+def db_test():
     try:
-        new_order = Order(
-            customer_id=data['customer_id'],
-            order_id=data['order_id'],
-            status=data['status'],
-            total=data['total'],
-            purchase_date=datetime.strptime(data['purchase_date'], '%Y-%m-%dT%H:%M:%SZ')
-        )
-        db.session.add(new_order)
-        db.session.commit()
-        return jsonify({'message': 'Order added successfully', 'order_id': new_order.order_id}), 201
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/customers/<int:customer_id>/orders', methods=['GET'])
-def get_orders(customer_id):
-    orders = Order.query.filter_by(customer_id=customer_id).all()
-    if not orders:
-        return jsonify({'message': 'No orders found for this customer'}), 404
-
-    result = [
-        {
-            'order_id': order.order_id,
-            'status': order.status,
-            'total': order.total,
-            'purchase_date': order.purchase_date.strftime('%Y-%m-%dT%H:%M:%SZ')
-        }
-        for order in orders
-    ]
-    return jsonify(result), 200
-
-@app.route('/auth/amazon', methods=['POST'])
-def amazon_auth():
-    auth_code = request.json.get("code")  # Get the authorization code from the frontend
-    if not auth_code:
-        return jsonify({"error": "Authorization code is required"}), 400
-
-    try:
-        token_url = "https://api.amazon.com/auth/o2/token"
-        payload = {
-            "grant_type": "authorization_code",
-            "code": auth_code,
-            "redirect_uri": "https://guillermos-amazing-site-b0c75a.webflow.io/callback",
-            "client_id": LWA_APP_ID,
-            "client_secret": LWA_CLIENT_SECRET,
-        }
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        token_response = requests.post(token_url, data=payload, headers=headers)
-        token_data = token_response.json()
-
-        if "access_token" not in token_data:
-            return jsonify({"error": "Failed to obtain access token"}), 400
-
-        user_info_url = "https://api.amazon.com/user/profile"
-        user_headers = {"Authorization": f"Bearer {token_data['access_token']}"}
-        user_response = requests.get(user_info_url, headers=user_headers)
-        user_data = user_response.json()
-
-        return jsonify({"access_token": token_data["access_token"], "user": user_data})
-
+        with DB_CONN.cursor() as cur:
+            cur.execute("SELECT 1")
+            return jsonify({"message": "✅ PostgreSQL Connection Successful!"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route('/')
-def home():
-    return "Welcome to the Flask App! API is running."
+
+    return redirect("https://guillermos-amazing-site-b0c75a.webflow.io/dashboard")
+
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    from os import environ
+    app.run(host="0.0.0.0", port=int(environ.get("PORT", 5000)))
 
 
-@app.route('/callback', methods=['GET'])
-def handle_callback():
-    # Get the authorization code from the query parameters
-    auth_code = request.args.get('code')
-    
-    if not auth_code:
-        return jsonify({'error': 'Authorization code missing'}), 400
 
-    try:
-        # Exchange the authorization code for an access token
-        token_url = "https://api.amazon.com/auth/o2/token"
-        payload = {
-            "grant_type": "authorization_code",
-            "code": auth_code,
-            "redirect_uri": "https://guillermos-amazing-site-b0c75a.webflow.io/callback",
-            "client_id": LWA_APP_ID,
-            "client_secret": LWA_CLIENT_SECRET,
-        }
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        token_response = requests.post(token_url, data=payload, headers=headers)
-        token_data = token_response.json()
 
-        if "access_token" not in token_data:
-            return jsonify({"error": "Failed to obtain access token"}), 400
 
-        # Redirect to Webflow or display a success message
-        return jsonify({
-            "message": "Authorization successful",
-            "access_token": token_data["access_token"],
-        })
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
